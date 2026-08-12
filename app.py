@@ -7,6 +7,7 @@ REST API olarak sunar. Frontend HTML5 Canvas + Three.js ile çalışır.
 
 import io
 import os
+import gzip
 import json
 import tempfile
 import shutil
@@ -14,6 +15,7 @@ import base64
 from pathlib import Path
 
 import numpy as np
+import nibabel as nib
 from PIL import Image
 from flask import Flask, render_template, request, jsonify, send_file
 
@@ -44,6 +46,66 @@ _upload_dir: str | None = None
 def index():
     """Ana sayfa."""
     return render_template("index.html")
+
+
+# ---------------------------------------------------------------------------
+# Veri seti / ornek API
+# ---------------------------------------------------------------------------
+
+SAMPLES_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..", "data", "Micro_Ultrasound_Prostate_Segmentation_Dataset",
+    "test", "micro_ultrasound_scans",
+)
+
+
+def _sample_files():
+    if not os.path.isdir(SAMPLES_DIR):
+        return {}
+    out = {}
+    for f in sorted(os.listdir(SAMPLES_DIR)):
+        if f.endswith(".nii.gz"):
+            out[f[:-7]] = os.path.join(SAMPLES_DIR, f)
+    return out
+
+
+@app.route("/api/samples")
+def list_samples():
+    files = _sample_files()
+    items = [{"id": sid, "label": sid.replace("microUS_", "").replace("_", " ")}
+             for sid in files]
+    return jsonify({"samples": items})
+
+
+@app.route("/api/load_sample", methods=["POST"])
+def load_sample():
+    global _upload_dir
+    data = request.get_json() or {}
+    sid = data.get("id")
+    files = _sample_files()
+    if sid not in files:
+        return jsonify({"error": "Ornek bulunamadi."}), 404
+
+    if _upload_dir and os.path.exists(_upload_dir):
+        shutil.rmtree(_upload_dir, ignore_errors=True)
+    _upload_dir = tempfile.mkdtemp(prefix="mr_sample_")
+    os.symlink(files[sid], os.path.join(_upload_dir, os.path.basename(files[sid])))
+
+    try:
+        _loader.load(_upload_dir)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+    _label_manager.set_volume_shape(_loader.get_dimensions())
+    _label_manager.clear()
+    annotations_io.load_annotations(_upload_dir, _label_manager)
+
+    return jsonify({
+        "success": True,
+        "format": _loader.detected_format or "nifti",
+        "shape": list(_loader.get_dimensions()),
+        "num_slices": _loader.get_slice_count(),
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -355,6 +417,42 @@ def get_labels_3d():
             continue
 
     return jsonify({"meshes": meshes})
+
+
+# ---------------------------------------------------------------------------
+# NIfTI API (NiiVue 3D viewer icin)
+# ---------------------------------------------------------------------------
+
+Z_SCALE = 22.0
+
+
+def _affine():
+    sz, sy, sx = (list(_loader.spacing) + [1, 1, 1])[:3]
+    return np.diag([sx, sy, sz * Z_SCALE, 1.0])
+
+
+def _send_nifti(arr):
+    img = nib.Nifti1Image(np.ascontiguousarray(np.transpose(arr, (2, 1, 0))), _affine())
+    buf = io.BytesIO(gzip.compress(img.to_bytes()))
+    return send_file(buf, mimetype="application/gzip", download_name="vol.nii.gz")
+
+
+@app.route("/api/nifti/volume")
+def nifti_volume():
+    if not _loader.is_loaded:
+        return jsonify({"error": "Volume yuklenmemis."}), 400
+    return _send_nifti(_loader.volume.astype(np.uint8))
+
+
+@app.route("/api/nifti/labels")
+def nifti_labels():
+    if not _loader.is_loaded:
+        return jsonify({"error": "Volume yuklenmemis."}), 400
+    if _label_manager.has_annotations():
+        lab = (_label_manager.get_combined_label_volume() > 0).astype(np.uint8) * 255
+    else:
+        lab = np.zeros(_loader.get_dimensions(), dtype=np.uint8)
+    return _send_nifti(lab)
 
 
 # ---------------------------------------------------------------------------

@@ -150,6 +150,15 @@ class SliceViewer {
 
             // Left Click in Draw Mode
             if (e.button === 0 && this.drawMode) {
+                const pts = this.polygonTool.currentPoints;
+                if (this.polygonTool.isDrawing && pts.length >= 3) {
+                    const first = this.imageToScreen(pts[0][0], pts[0][1]);
+                    if (Math.hypot(first.x - mouseX, first.y - mouseY) < 12) {
+                        this.polygonTool.closePolygon();
+                        this.render();
+                        return;
+                    }
+                }
                 const imgPt = this.screenToImage(mouseX, mouseY);
                 // Clamp within image bounds
                 const clampedX = Math.max(0, Math.min(this.imgWidth, imgPt.x));

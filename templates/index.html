@@ -3,142 +3,70 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="MR Görüntü Etiketleme Arayüzü — 2D slice etiketleme ve 3D görselleştirme web uygulaması">
-    <title>MR Labeler — Görüntü Etiketleme</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <title>Prostate Labeler</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
-    <!-- Header -->
-    <header id="app-header">
-        <div class="header-left">
-            <div class="logo-icon">🧠</div>
-            <h1>MR Labeler</h1>
-            <span class="header-badge">Web</span>
-        </div>
-        <div class="header-right">
-            <span id="status-text" class="status-text">Hazır</span>
-            <div id="status-dot" class="status-dot"></div>
-        </div>
-    </header>
-
-    <!-- Tabs -->
     <nav id="tab-bar">
-        <button class="tab-btn active" data-tab="labeling">
-            <span class="tab-icon">🏷️</span>
-            <span class="tab-text">Etiketleme</span>
-        </button>
-        <button class="tab-btn" data-tab="view3d">
-            <span class="tab-icon">🧊</span>
-            <span class="tab-text">3D Görünüm</span>
-        </button>
+        <div class="tab-group">
+            <button class="tab-btn active" data-tab="labeling">Etiketleme</button>
+            <button class="tab-btn" data-tab="view3d">3D Görünüm</button>
+        </div>
+        <div class="tab-status">
+            <span id="status-text" class="status-text">Hazır</span>
+            <span id="status-dot" class="status-dot"></span>
+        </div>
     </nav>
 
-    <!-- Main Content -->
     <main id="main-content">
-        <!-- Tab 1: Labeling -->
         <section id="tab-labeling" class="tab-panel active">
             <div class="panel-layout">
-                <!-- Left: Canvas area -->
                 <div class="canvas-area">
-                    <!-- Upload overlay -->
-                    <div id="upload-overlay" class="upload-overlay">
-                        <div class="upload-content">
-                            <div class="upload-icon">📁</div>
-                            <h2>MR Görüntü Yükle</h2>
-                            <p>Dosyaları sürükleyip bırakın veya aşağıdan seçin</p>
-                            <div class="upload-buttons">
-                                <label class="upload-btn primary" id="file-upload-label">
-                                    <input type="file" id="file-input" accept=".nii,.nii.gz,.dcm,.dicom,.png,.jpg,.jpeg,.bmp,.tif,.tiff" multiple hidden>
-                                    📄 Dosya Seç
-                                </label>
-                                <label class="upload-btn" id="folder-upload-label">
-                                    <input type="file" id="folder-input" webkitdirectory directory multiple hidden>
-                                    📂 Klasör Seç
-                                </label>
-                            </div>
-                            <p class="upload-hint">NIfTI (.nii, .nii.gz) • DICOM • PNG/JPG/BMP/TIFF serisi</p>
+                    <div id="sample-overlay" class="sample-overlay">
+                        <div class="sample-box">
+                            <div class="sample-title">Örnekler</div>
+                            <div id="sample-list" class="sample-list"></div>
                         </div>
                     </div>
 
-                    <!-- Canvas wrapper -->
                     <div id="canvas-wrapper" class="canvas-wrapper hidden">
                         <canvas id="slice-canvas"></canvas>
                     </div>
 
-                    <!-- Slice info + slider -->
                     <div id="slice-controls" class="slice-controls hidden">
                         <div class="slice-info-row">
-                            <span id="slice-label" class="slice-label">Slice: — / —</span>
+                            <span id="slice-label" class="slice-label">Slice: 0 / 0</span>
                             <span id="format-label" class="format-label"></span>
                         </div>
                         <div class="slider-row">
-                            <button id="prev-btn" class="nav-btn" title="Önceki slice (←)">◀</button>
+                            <button id="prev-btn" class="nav-btn" title="Önceki slice">‹</button>
                             <input type="range" id="slice-slider" min="0" max="0" value="0" class="slice-slider">
-                            <button id="next-btn" class="nav-btn" title="Sonraki slice (→)">▶</button>
+                            <button id="next-btn" class="nav-btn" title="Sonraki slice">›</button>
                         </div>
                     </div>
                 </div>
 
-                <!-- Right: Control panel -->
                 <aside class="control-panel">
-                    <!-- Upload button (when loaded, allow re-upload) -->
-                    <button id="open-btn" class="ctrl-btn open-btn">
-                        <span>📁</span> Dosya / Klasör Aç
-                    </button>
+                    <button id="open-btn" class="ctrl-btn">Örnekler</button>
 
-                    <!-- Labels -->
-                    <div class="ctrl-group" id="labels-group">
+                    <div class="ctrl-group">
                         <div class="ctrl-group-title">Etiketler</div>
-                        <div id="label-list" class="label-list">
-                            <!-- Dynamically populated -->
-                        </div>
+                        <div id="label-list" class="label-list"></div>
                     </div>
 
-                    <!-- Tools -->
                     <div class="ctrl-group">
                         <div class="ctrl-group-title">Araçlar</div>
-                        <button id="draw-btn" class="ctrl-btn tool-btn">
-                            <span>✏️</span> Poligon Çiz
-                        </button>
-                        <button id="undo-btn" class="ctrl-btn tool-btn">
-                            <span>↩</span> Geri Al (Ctrl+Z)
-                        </button>
-                        <button id="delete-last-btn" class="ctrl-btn tool-btn">
-                            <span>🗑️</span> Son Poligonu Sil
-                        </button>
-                        <button id="clear-btn" class="ctrl-btn danger-btn">
-                            <span>⚠</span> Slice Etiketlerini Temizle
-                        </button>
+                        <button id="draw-btn" class="ctrl-btn tool-btn">Poligon Çiz</button>
+                        <button id="undo-btn" class="ctrl-btn tool-btn">Geri Al</button>
+                        <button id="delete-last-btn" class="ctrl-btn tool-btn">Son Poligonu Sil</button>
+                        <button id="clear-btn" class="ctrl-btn danger-btn">Slice Etiketlerini Temizle</button>
                     </div>
 
-                    <!-- Tips -->
-                    <div class="ctrl-group">
-                        <div class="ctrl-group-title">İpuçları</div>
-                        <div class="tips-content">
-                            <span>• Sol tık: köşe ekle</span>
-                            <span>• Sağ tık / çift tık: poligonu kapat</span>
-                            <span>• Escape: iptal</span>
-                            <span>• Ctrl+Z: geri al</span>
-                            <span>• Delete: son poligonu sil</span>
-                            <span>• Mouse tekerleği: zoom</span>
-                            <span>• Space + sürükleme: kaydır</span>
-                            <span>• ← → : slice geçişi</span>
-                        </div>
+                    <div class="ctrl-actions">
+                        <button id="save-btn" class="ctrl-btn primary">Kaydet</button>
+                        <button id="download-btn" class="ctrl-btn">JSON İndir</button>
                     </div>
 
-                    <!-- Save -->
-                    <button id="save-btn" class="ctrl-btn save-btn">
-                        <span>💾</span> Kaydet
-                    </button>
-
-                    <button id="download-btn" class="ctrl-btn download-btn">
-                        <span>📥</span> İndir (JSON)
-                    </button>
-
-                    <!-- Progress -->
                     <div class="progress-section">
                         <span id="progress-label" class="progress-label">Etiketlenen: 0 / 0 slice</span>
                         <div class="progress-bar-container">
@@ -149,47 +77,30 @@
             </div>
         </section>
 
-        <!-- Tab 2: 3D View -->
         <section id="tab-view3d" class="tab-panel">
             <div class="panel-layout">
-                <!-- Left: 3D viewport -->
                 <div class="canvas-area">
                     <div id="viewer3d-container" class="viewer3d-container">
                         <div id="viewer3d-placeholder" class="viewer3d-placeholder">
-                            <div class="placeholder-icon">🧊</div>
-                            <p>Etiket verisi yüklendikten sonra 3D görünüm burada görüntülenecek</p>
+                            <p>Bir örnek seçin.</p>
                         </div>
                     </div>
                 </div>
 
-                <!-- Right: 3D controls -->
                 <aside class="control-panel">
-                    <!-- Layer toggles -->
-                    <div class="ctrl-group" id="layers-group">
-                        <div class="ctrl-group-title">Etiket Katmanları</div>
-                        <div id="layer-list" class="layer-list">
-                            <!-- Dynamically populated -->
-                        </div>
-                    </div>
-
-                    <!-- Opacity -->
                     <div class="ctrl-group">
-                        <div class="ctrl-group-title">Opaklık Ayarları</div>
-                        <label class="opacity-label">Hacim Opaklığı</label>
-                        <input type="range" id="vol-opacity" min="0" max="100" value="30" class="opacity-slider">
-                        <label class="opacity-label">Etiket Opaklığı</label>
-                        <input type="range" id="lbl-opacity" min="0" max="100" value="70" class="opacity-slider">
+                        <div class="ctrl-group-title">Opaklık</div>
+                        <label class="opacity-label">Hacim</label>
+                        <input type="range" id="vol-opacity" min="0" max="100" value="18" class="opacity-slider">
+                        <label class="opacity-label">Etiket</label>
+                        <input type="range" id="lbl-opacity" min="0" max="100" value="90" class="opacity-slider">
                     </div>
 
-                    <!-- Camera controls -->
-                    <button id="reset-camera-btn" class="ctrl-btn tool-btn">
-                        <span>🎯</span> Kamerayı Sıfırla
-                    </button>
-                    <button id="refresh-3d-btn" class="ctrl-btn tool-btn">
-                        <span>🔄</span> 3D Yenile
-                    </button>
+                    <div class="ctrl-actions">
+                        <button id="refresh-3d-btn" class="ctrl-btn primary">3D Yenile</button>
+                        <button id="reset-camera-btn" class="ctrl-btn">Kamerayı Sıfırla</button>
+                    </div>
 
-                    <!-- Stats -->
                     <div class="ctrl-group">
                         <div class="ctrl-group-title">İstatistikler</div>
                         <div id="stats-content" class="stats-content">
@@ -202,15 +113,11 @@
         </section>
     </main>
 
-    <!-- Toast notifications -->
     <div id="toast-container" class="toast-container"></div>
 
-    <!-- Scripts -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="/static/js/polygon_tool.js"></script>
     <script src="/static/js/slice_viewer.js"></script>
-    <script src="/static/js/viewer3d.js"></script>
+    <script type="module" src="/static/js/viewer3d.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>

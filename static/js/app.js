@@ -17,11 +17,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     const tabBtns = document.querySelectorAll('.tab-btn');
     const tabPanels = document.querySelectorAll('.tab-panel');
 
-    const uploadOverlay = document.getElementById('upload-overlay');
+    const sampleOverlay = document.getElementById('sample-overlay');
+    const sampleList = document.getElementById('sample-list');
     const canvasWrapper = document.getElementById('canvas-wrapper');
     const sliceControls = document.getElementById('slice-controls');
-    const fileInput = document.getElementById('file-input');
-    const folderInput = document.getElementById('folder-input');
     const openBtn = document.getElementById('open-btn');
 
     const sliceSlider = document.getElementById('slice-slider');
@@ -31,7 +30,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const nextBtn = document.getElementById('next-btn');
 
     const labelListContainer = document.getElementById('label-list');
-    const layerListContainer = document.getElementById('layer-list');
     const drawBtn = document.getElementById('draw-btn');
     const undoBtn = document.getElementById('undo-btn');
     const deleteLastBtn = document.getElementById('delete-last-btn');
@@ -86,7 +84,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             configData = await res.json();
             sliceViewer.setColors(configData.label_colors);
             renderLabelsUI();
-            renderLayersUI();
         } catch (e) {
             console.error('Config load failed:', e);
             showToast('Yapılandırma yüklenemedi.', 'error');
@@ -119,26 +116,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    function renderLayersUI() {
-        layerListContainer.innerHTML = '';
-        configData.labels.forEach((label) => {
-            const color = configData.label_colors[label] || { hex: '#4dd8c8' };
-            const item = document.createElement('div');
-            item.className = 'layer-item';
-            item.innerHTML = `
-                <input type="checkbox" class="layer-checkbox" id="layer-${label}" checked>
-                <label class="layer-label" for="layer-${label}" style="color: ${color.hex};">${label}</label>
-            `;
-
-            const cb = item.querySelector('.layer-checkbox');
-            cb.addEventListener('change', () => {
-                viewer3D.setLabelVisibility(label, cb.checked);
-            });
-
-            layerListContainer.appendChild(item);
-        });
-    }
-
     // -------------------------------------------------------------------------
     // Tab Switching
     // -------------------------------------------------------------------------
@@ -164,88 +141,67 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     // -------------------------------------------------------------------------
-    // Upload Handling
+    // Sample Browser
     // -------------------------------------------------------------------------
-    function setupUpload() {
-        // Drag & Drop
-        window.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadOverlay.classList.add('drag-over');
-        });
-        window.addEventListener('dragleave', (e) => {
-            if (e.clientX <= 0 || e.clientY <= 0) {
-                uploadOverlay.classList.remove('drag-over');
+    let currentSampleLabel = '';
+
+    async function setupSamples() {
+        openBtn.addEventListener('click', () => sampleOverlay.classList.remove('hidden'));
+        try {
+            const res = await fetch('/api/samples');
+            const data = await res.json();
+            sampleList.innerHTML = '';
+            (data.samples || []).forEach((s) => {
+                const item = document.createElement('button');
+                item.className = 'sample-item';
+                item.textContent = s.label;
+                item.addEventListener('click', () => loadSample(s.id, s.label));
+                sampleList.appendChild(item);
+            });
+            if (!data.samples || !data.samples.length) {
+                sampleList.innerHTML = '<div class="sample-empty">Veri seti bulunamadı.</div>';
             }
-        });
-        window.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadOverlay.classList.remove('drag-over');
-            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                handleFilesUpload(e.dataTransfer.files);
-            }
-        });
-
-        fileInput.addEventListener('change', () => {
-            if (fileInput.files.length > 0) handleFilesUpload(fileInput.files);
-        });
-
-        folderInput.addEventListener('change', () => {
-            if (folderInput.files.length > 0) handleFilesUpload(folderInput.files);
-        });
-
-        openBtn.addEventListener('click', () => {
-            uploadOverlay.classList.remove('hidden');
-        });
+        } catch (e) {
+            console.error('Samples load failed:', e);
+        }
     }
 
-    async function handleFilesUpload(fileList) {
-        setStatus('Hacim yükleniyor...', 'loading');
-        showToast('Dosyalar yükleniyor, lütfen bekleyin...', 'info');
-
-        const formData = new FormData();
-        for (let i = 0; i < fileList.length; i++) {
-            formData.append('files', fileList[i]);
-        }
-
+    async function loadSample(id, label) {
+        setStatus('Yükleniyor...', 'loading');
         try {
-            const res = await fetch('/api/upload', {
+            const res = await fetch('/api/load_sample', {
                 method: 'POST',
-                body: formData
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id })
             });
-
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Yükleme başarısız');
-
-            showToast(`${data.num_slices} slice başarıyla yüklendi!`, 'success');
-            setStatus(`Yüklendi: ${data.format.toUpperCase()}`, 'active');
-
-            // Hide upload overlay
-            uploadOverlay.classList.add('hidden');
-            canvasWrapper.classList.remove('hidden');
-            sliceControls.classList.remove('hidden');
-
-            // Reset cache & info
-            sliceCache = {};
-            volumeInfo = data;
-            currentSliceIdx = 0;
-
-            sliceSlider.min = 0;
-            sliceSlider.max = data.num_slices - 1;
-            sliceSlider.value = 0;
-
-            formatLabel.textContent = `Format: ${data.format.toUpperCase()} | Boyut: ${data.shape.join('×')}`;
-
-            // Initialize 3D bounding box
-            viewer3D.setVolumeBounds(data.shape);
-
-            // Load first slice
-            await showSlice(0);
-            updateStats();
+            currentSampleLabel = label || id;
+            showLoaded(data);
+            setStatus(currentSampleLabel, 'active');
         } catch (e) {
             console.error(e);
             showToast(`Yükleme hatası: ${e.message}`, 'error');
             setStatus('Hata', 'default');
         }
+    }
+
+    function showLoaded(info) {
+        sampleOverlay.classList.add('hidden');
+        canvasWrapper.classList.remove('hidden');
+        sliceControls.classList.remove('hidden');
+
+        sliceCache = {};
+        volumeInfo = info;
+        currentSliceIdx = 0;
+
+        sliceSlider.min = 0;
+        sliceSlider.max = info.num_slices - 1;
+        sliceSlider.value = 0;
+        formatLabel.textContent = currentSampleLabel;
+
+        showSlice(0);
+        updateStats();
     }
 
     // -------------------------------------------------------------------------
@@ -365,7 +321,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const res = await fetch('/api/save', { method: 'POST' });
             const data = await res.json();
             if (res.ok) {
-                showToast('✅ Tüm etiketler kaydedildi!', 'success');
+                showToast('Tüm etiketler kaydedildi.', 'success');
             } else {
                 throw new Error(data.error);
             }
@@ -411,18 +367,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     // -------------------------------------------------------------------------
     async function refresh3D() {
         if (!volumeInfo) return;
-        setStatus('3D yüzeyler hesaplanıyor...', 'loading');
+        setStatus('3D hazırlanıyor...', 'loading');
 
         try {
-            const res = await fetch('/api/labels3d');
-            const data = await res.json();
-
-            if (data.meshes) {
-                viewer3D.updateLabels(data.meshes);
-                setStatus('3D Hazır', 'active');
-            }
+            const t = Date.now();
+            await viewer3D.load(`/api/nifti/volume?t=${t}`, `/api/nifti/labels?t=${t}`);
+            setStatus('3D Hazır', 'active');
         } catch (e) {
-            console.error('3D mesh fetch error:', e);
+            console.error('3D load error:', e);
             setStatus('3D Hatası', 'default');
         }
     }
@@ -442,26 +394,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Start App
     // -------------------------------------------------------------------------
     await loadConfig();
-    setupUpload();
+    await setupSamples();
 
-    // Check if volume is already loaded on server
     try {
         const infoRes = await fetch('/api/volume/info');
         const info = await infoRes.json();
         if (info.loaded) {
-            volumeInfo = info;
-            uploadOverlay.classList.add('hidden');
-            canvasWrapper.classList.remove('hidden');
-            sliceControls.classList.remove('hidden');
-
-            sliceSlider.min = 0;
-            sliceSlider.max = info.num_slices - 1;
-            sliceSlider.value = 0;
-            formatLabel.textContent = `Format: ${info.format.toUpperCase()} | Boyut: ${info.shape.join('×')}`;
-
-            viewer3D.setVolumeBounds(info.shape);
-            await showSlice(0);
-            updateStats();
+            currentSampleLabel = '';
+            showLoaded(info);
         }
     } catch (e) {
         console.log('No preloaded volume');
