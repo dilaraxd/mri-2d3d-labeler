@@ -52,11 +52,13 @@ def index():
 # Veri seti / ornek API
 # ---------------------------------------------------------------------------
 
-SAMPLES_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "..", "data", "Micro_Ultrasound_Prostate_Segmentation_Dataset",
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_LOCAL_SAMPLES = os.path.join(_HERE, "sample_data")
+_EXTERNAL_SAMPLES = os.path.join(
+    _HERE, "..", "data", "Micro_Ultrasound_Prostate_Segmentation_Dataset",
     "test", "micro_ultrasound_scans",
 )
+SAMPLES_DIR = _LOCAL_SAMPLES if os.path.isdir(_LOCAL_SAMPLES) else _EXTERNAL_SAMPLES
 
 
 def _sample_files():
