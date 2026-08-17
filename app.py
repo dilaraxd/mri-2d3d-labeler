@@ -68,6 +68,8 @@ def _sample_files():
     for f in sorted(os.listdir(SAMPLES_DIR)):
         if f.endswith(".nii.gz"):
             out[f[:-7]] = os.path.join(SAMPLES_DIR, f)
+        elif f.endswith(".nii"):
+            out[f[:-4]] = os.path.join(SAMPLES_DIR, f)
     return out
 
 
