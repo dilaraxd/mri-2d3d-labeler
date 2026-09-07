@@ -102,13 +102,35 @@ body {
   display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
   max-height: 60vh; overflow-y: auto;
 }
+.sample-group-header {
+  grid-column: 1 / -1;
+  font-size: 10px; font-weight: 700; letter-spacing: 1.2px;
+  text-transform: uppercase; color: #5a737f;
+  padding: 10px 0 4px;
+  border-top: 1px solid #2a343d;
+  margin-top: 4px;
+  display: flex; align-items: center; gap: 8px;
+}
+.sample-group-header:first-child { border-top: none; margin-top: 0; padding-top: 0; }
+.sample-group-badge {
+  font-size: 9px; font-weight: 700; letter-spacing: .5px;
+  padding: 1px 5px; border-radius: 3px;
+  background: #1565c0; color: #90caf9;
+  text-transform: uppercase;
+}
 .sample-item {
   padding: 10px 12px; font: inherit; font-size: 13px; text-align: left;
   background: #1a232b; color: #dbe3e9;
   border: 1px solid #2f3a43; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .sample-item:hover { background: var(--petrol); border-color: var(--petrol); color: #fff; }
+.sample-item--dicom {
+  border-left: 2px solid #1565c0;
+}
+.sample-item--dicom:hover { border-left-color: #90caf9; }
 .sample-empty { color: #8a97a0; font-size: 13px; grid-column: 1 / -1; }
+
 
 .canvas-wrapper { flex: 1; min-height: 0; position: relative; overflow: hidden; }
 #slice-canvas { display: block; width: 100%; height: 100%; }
@@ -198,3 +220,94 @@ body {
 .toast.error { border-left-color: var(--danger); }
 .toast.info { border-left-color: var(--petrol); }
 .toast.fade-out { opacity: 0; }
+
+/* ------------------------------------------------------------------ */
+/* Seri seçici (multi-seri DICOM)                                       */
+/* ------------------------------------------------------------------ */
+.series-select {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  appearance: auto;
+}
+.series-select:focus {
+  outline: none;
+  border-color: var(--petrol);
+}
+
+/* ------------------------------------------------------------------ */
+/* DICOM-SEG zone segmentasyonları                                      */
+/* ------------------------------------------------------------------ */
+.seg-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+  border-radius: 3px;
+  background: #1976d2;
+  color: #fff;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+
+.seg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.seg-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  user-select: none;
+}
+.seg-item:hover { border-color: var(--petrol); }
+.seg-item.active {
+  border-color: var(--petrol);
+  background: var(--petrol-tint);
+}
+
+.seg-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  border: 1px solid rgba(0,0,0,.15);
+}
+
+.seg-label-text {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seg-count {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.seg-toggle {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+

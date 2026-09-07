@@ -46,6 +46,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     const resetCameraBtn = document.getElementById('reset-camera-btn');
     const refresh3dBtn = document.getElementById('refresh-3d-btn');
 
+    // Seri seçici
+    const seriesGroup  = document.getElementById('series-group');
+    const seriesSelect = document.getElementById('series-select');
+    // SEG overlay
+    const segGroup = document.getElementById('seg-group');
+    const segList  = document.getElementById('seg-list');
+
+    // SEG state
+    let segMasksData    = {};   // { label: {shape, mask_b64, color, voxel_counts} }
+    let segActiveLabels = new Set(); // aktif overlay'ler
+
     // -------------------------------------------------------------------------
     // Initialize Viewers
     // -------------------------------------------------------------------------
@@ -151,17 +162,45 @@ document.addEventListener('DOMContentLoaded', async () => {
             const res = await fetch('/api/samples');
             const data = await res.json();
             sampleList.innerHTML = '';
-            (data.samples || []).forEach((s) => {
-                const item = document.createElement('button');
-                item.className = 'sample-item';
-                item.textContent = s.label;
-                item.addEventListener('click', () => loadSample(s.id, s.label));
-                sampleList.appendChild(item);
-            });
-            if (!data.samples || !data.samples.length) {
+
+            const samples = data.samples || [];
+            if (!samples.length) {
                 sampleList.innerHTML = '<div class="sample-empty">Veri seti bulunamadı.</div>';
+                return;
             }
+
+            // Gruplara ayır
+            const groups = {};
+            samples.forEach(s => {
+                const g = s.group || 'Diğer';
+                if (!groups[g]) groups[g] = [];
+                groups[g].push(s);
+            });
+
+            // Her grubu başlık + item olarak render et
+            Object.entries(groups).forEach(([groupName, items]) => {
+                const header = document.createElement('div');
+                header.className = 'sample-group-header';
+
+                // DICOM Dataset ise özel badge ekle
+                const isDicom = groupName.toLowerCase().includes('dicom');
+                header.innerHTML = groupName + (isDicom
+                    ? ' <span class="sample-group-badge">DICOM</span>'
+                    : '');
+                sampleList.appendChild(header);
+
+                items.forEach(s => {
+                    const item = document.createElement('button');
+                    item.className = 'sample-item';
+                    if (isDicom) item.classList.add('sample-item--dicom');
+                    item.textContent = s.label;
+                    item.title = s.label;
+                    item.addEventListener('click', () => loadSample(s.id, s.label));
+                    sampleList.appendChild(item);
+                });
+            });
         } catch (e) {
+
             console.error('Samples load failed:', e);
         }
     }
@@ -200,9 +239,174 @@ document.addEventListener('DOMContentLoaded', async () => {
         sliceSlider.value = 0;
         formatLabel.textContent = currentSampleLabel;
 
+        // Seri seçici guncelle
+        updateSeriesUI(info.series || {}, info.selected_role || '');
+
+        // SEG overlay guncelle
+        if (info.seg_available) {
+            loadSegMasks();
+        } else {
+            segGroup.style.display = 'none';
+            segMasksData = {};
+            segActiveLabels.clear();
+        }
+
         showSlice(0);
         updateStats();
     }
+
+    // -------------------------------------------------------------------------
+    // Seri seçici
+    // -------------------------------------------------------------------------
+    function updateSeriesUI(seriesMap, selectedRole) {
+        const roles = Object.keys(seriesMap);
+        if (roles.length <= 1) {
+            seriesGroup.style.display = 'none';
+            return;
+        }
+        seriesGroup.style.display = '';
+        seriesSelect.innerHTML = '';
+        roles.forEach(role => {
+            const info = seriesMap[role];
+            const opt = document.createElement('option');
+            opt.value = role;
+            opt.textContent = `${role} — ${info.description || ''} (${info.slice_count} slice)`;
+            opt.selected = (role === selectedRole);
+            seriesSelect.appendChild(opt);
+        });
+    }
+
+    seriesSelect && seriesSelect.addEventListener('change', async (e) => {
+        const role = e.target.value;
+        setStatus('Seri yükleniyor...', 'loading');
+        try {
+            const res = await fetch('/api/series/select', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Seri yüklenemedi');
+
+            // Volume bilgisini guncelle
+            volumeInfo = { ...volumeInfo, ...data };
+            sliceCache = {};
+            sliceSlider.max = data.num_slices - 1;
+            sliceSlider.value = 0;
+            showSlice(0);
+            setStatus(`${role} serisi`, 'active');
+            showToast(`${role} serisi yüklendi (${data.num_slices} slice)`, 'success');
+        } catch (err) {
+            showToast(`Seri yüklenemedi: ${err.message}`, 'error');
+            setStatus('Hata', 'default');
+        }
+    });
+
+    // -------------------------------------------------------------------------
+    // DICOM-SEG Overlay
+    // -------------------------------------------------------------------------
+    async function loadSegMasks() {
+        try {
+            const res = await fetch('/api/seg_masks');
+            const data = await res.json();
+            segMasksData = data.masks || {};
+
+            if (Object.keys(segMasksData).length === 0) {
+                segGroup.style.display = 'none';
+                return;
+            }
+            segGroup.style.display = '';
+            renderSegUI();
+        } catch (e) {
+            console.error('SEG yüklenemedi:', e);
+        }
+    }
+
+    function renderSegUI() {
+        segList.innerHTML = '';
+        Object.entries(segMasksData).forEach(([label, info]) => {
+            const c = info.color;
+            const hex = `#${Math.round(c.r*255).toString(16).padStart(2,'0')}${Math.round(c.g*255).toString(16).padStart(2,'0')}${Math.round(c.b*255).toString(16).padStart(2,'0')}`;
+            const total = info.total_voxels || 0;
+
+            const item = document.createElement('div');
+            item.className = 'seg-item';
+            item.dataset.label = label;
+            item.innerHTML = `
+                <input type="checkbox" class="seg-toggle" id="seg-${label}">
+                <div class="seg-swatch" style="background:${hex}; opacity:${c.a.toFixed(2)};"></div>
+                <label class="seg-label-text" for="seg-${label}">${label}</label>
+                <span class="seg-count">${total.toLocaleString()} vx</span>
+            `;
+
+            const checkbox = item.querySelector('.seg-toggle');
+            checkbox.addEventListener('change', () => {
+                if (checkbox.checked) {
+                    segActiveLabels.add(label);
+                    item.classList.add('active');
+                } else {
+                    segActiveLabels.delete(label);
+                    item.classList.remove('active');
+                }
+                // Slice'i yeniden çiz
+                showSlice(currentSliceIdx);
+            });
+
+            segList.appendChild(item);
+        });
+    }
+
+    /** Mevcut slice için SEG overlay bitmap'ini oluştur (canvas 2D context) */
+    function getSegOverlayForSlice(ctx, idx, canvasW, canvasH) {
+        if (segActiveLabels.size === 0 || Object.keys(segMasksData).length === 0) return;
+
+        segActiveLabels.forEach(label => {
+            const info = segMasksData[label];
+            if (!info) return;
+            const [Z, H, W] = info.shape;
+            if (idx >= Z) return;
+
+            // Mask decode: base64 -> Uint8Array
+            const raw   = atob(info.mask_b64);
+            const bytes = new Uint8Array(raw.length);
+            for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+
+            // idx'inci slice: Z*H*W dizisinden H*W blogu al
+            const sliceOffset = idx * H * W;
+            const sliceMask   = bytes.slice(sliceOffset, sliceOffset + H * W);
+
+            // Off-screen canvas ile boyut eşiyle
+            const offscreen = document.createElement('canvas');
+            offscreen.width  = W;
+            offscreen.height = H;
+            const oc = offscreen.getContext('2d');
+            const imageData = oc.createImageData(W, H);
+            const c = info.color;
+            const R = Math.round(c.r * 255);
+            const G = Math.round(c.g * 255);
+            const B = Math.round(c.b * 255);
+            const A = Math.round(c.a * 220); // biraz saydam
+
+            for (let i = 0; i < sliceMask.length; i++) {
+                if (sliceMask[i] > 0) {
+                    imageData.data[i * 4]     = R;
+                    imageData.data[i * 4 + 1] = G;
+                    imageData.data[i * 4 + 2] = B;
+                    imageData.data[i * 4 + 3] = A;
+                }
+            }
+            oc.putImageData(imageData, 0, 0);
+
+            // Ana canvas'a ölçekle yaparak çiz
+            ctx.drawImage(offscreen, 0, 0, canvasW, canvasH);
+        });
+    }
+
+    // SliceViewer'a SEG overlay callback'i bağla
+    if (sliceViewer && typeof sliceViewer.setOverlayCallback === 'function') {
+        sliceViewer.setOverlayCallback(getSegOverlayForSlice);
+    }
+
 
     // -------------------------------------------------------------------------
     // Slice Display & Navigation
@@ -214,6 +418,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Update Slider UI
         sliceSlider.value = idx;
         sliceLabel.textContent = `Slice: ${idx + 1} / ${volumeInfo.num_slices}`;
+
+        // SEG overlay için slice indeksini güncelle
+        sliceViewer.setCurrentSliceIdx(idx);
 
         // Fetch Slice Image
         let img = sliceCache[idx];
@@ -238,6 +445,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.error('Failed to load polygons:', e);
         }
     }
+
 
     sliceSlider.addEventListener('input', (e) => {
         showSlice(parseInt(e.target.value, 10));

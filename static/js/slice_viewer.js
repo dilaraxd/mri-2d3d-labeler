@@ -9,6 +9,8 @@ class SliceViewer {
         this.ctx = this.canvas.getContext('2d');
         this.wrapper = this.canvas.parentElement;
         this.onPolygonEvent = onPolygonEvent;
+        this._overlayCallback = null;   // fn(ctx, sliceIdx, canvasW, canvasH)
+        this._currentSliceIdx = 0;
 
         // Image state
         this.currentImage = null;
@@ -38,6 +40,17 @@ class SliceViewer {
         this.resize();
         window.addEventListener('resize', () => this.resize());
     }
+
+    /** SEG overlay callback'ini kayıt et. fn(ctx, sliceIdx, canvasW, canvasH) */
+    setOverlayCallback(fn) {
+        this._overlayCallback = fn;
+    }
+
+    /** setImage çağrılırken mevcut slice indeksini de kaydet. */
+    setCurrentSliceIdx(idx) {
+        this._currentSliceIdx = idx;
+    }
+
 
     setDrawMode(enabled) {
         this.drawMode = enabled;
@@ -123,6 +136,26 @@ class SliceViewer {
             this.imgHeight * this.scale
         );
         ctx.restore();
+
+        // SEG overlay (işaretçi zonlar)
+        if (this._overlayCallback) {
+            ctx.save();
+            // Overlay'i sadece görüntü alanına clip et
+            ctx.beginPath();
+            ctx.rect(
+                this.offsetX, this.offsetY,
+                this.imgWidth * this.scale,
+                this.imgHeight * this.scale
+            );
+            ctx.clip();
+            this._overlayCallback(
+                ctx,
+                this._currentSliceIdx,
+                this.imgWidth * this.scale,
+                this.imgHeight * this.scale
+            );
+            ctx.restore();
+        }
 
         // Draw polygons
         this.polygonTool.draw(ctx, {

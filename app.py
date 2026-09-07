@@ -53,47 +53,159 @@ def index():
 # ---------------------------------------------------------------------------
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_LOCAL_SAMPLES = os.path.join(_HERE, "sample_data")
+
+# NIfTI / micro-US örnekleri
+_LOCAL_SAMPLES   = os.path.join(_HERE, "sample_data")
 _EXTERNAL_SAMPLES = os.path.join(
     _HERE, "..", "data", "Micro_Ultrasound_Prostate_Segmentation_Dataset",
     "test", "micro_ultrasound_scans",
 )
 SAMPLES_DIR = _LOCAL_SAMPLES if os.path.isdir(_LOCAL_SAMPLES) else _EXTERNAL_SAMPLES
 
+# DICOM örnekleri — her alt-klasör bir hasta/seri temsil eder
+_DICOM_SAMPLE_DIRS = [
+    os.path.join(_HERE, "sample_data", "dicom"),
+    os.path.join(_HERE, "sample_data", "dicom", "prostatex"),   # TCIA Data Retriever çıktısı
+    os.path.join(_HERE, "..", "data", "dicom_samples"),
+    os.path.join(_HERE, "..", "data", "PROSTATEx"),
+    os.path.join(_HERE, "..", "data", "prostatex"),
+]
 
-def _sample_files():
+
+def _nifti_samples():
+    """NIfTI örneklerini tara."""
     if not os.path.isdir(SAMPLES_DIR):
-        return {}
-    out = {}
+        return []
+    items = []
     for f in sorted(os.listdir(SAMPLES_DIR)):
         if f.endswith(".nii.gz"):
-            out[f[:-7]] = os.path.join(SAMPLES_DIR, f)
+            sid = f[:-7]
         elif f.endswith(".nii"):
-            out[f[:-4]] = os.path.join(SAMPLES_DIR, f)
-    return out
+            sid = f[:-4]
+        else:
+            continue
+        items.append({
+            "id":    f"nifti::{sid}",
+            "label": sid.replace("microUS_", "").replace("_", " "),
+            "group": "NIfTI Samples",
+            "path":  os.path.join(SAMPLES_DIR, f),
+            "type":  "nifti",
+        })
+    return items
+
+
+def _dicom_samples():
+    """DICOM klasör örneklerini tara. Her klasör bir örnektir."""
+    items = []
+    seen_paths = set()
+    # _DICOM_SAMPLE_DIRS'ın alt-klasörlerini de tara (TCIA çıktısı iç içe olabilir)
+    expanded = []
+    for base in _DICOM_SAMPLE_DIRS:
+        if os.path.isdir(base):
+            expanded.append(base)
+
+    for base in expanded:
+        for name in sorted(os.listdir(base)):
+            full = os.path.join(base, name)
+            if not os.path.isdir(full):
+                continue
+            # Zaten listelenmiş mi?
+            norm = os.path.normpath(full)
+            if norm in seen_paths:
+                continue
+            # Bu klasörün kendisi tarama kökü mü? (döngüsel eklemeden kaçın)
+            if norm in [os.path.normpath(d) for d in expanded]:
+                continue
+            # DICOM dosyası içeriyor mu kontrol et (max 3 seviye)
+            has_dcm = False
+            for root, _, files in os.walk(full):
+                depth = root[len(full):].count(os.sep)
+                if depth > 3:
+                    break
+                if any(f.lower().endswith((".dcm", ".dicom", ".ima")) for f in files):
+                    has_dcm = True
+                    break
+            if not has_dcm:
+                continue
+            seen_paths.add(norm)
+            
+            # Yolları frontend'e relative olarak gönder (güvenlik ve taşınabilirlik)
+            rel_path = os.path.relpath(full, _HERE)
+            # Windowstaki ters slashları düzelt
+            rel_path = rel_path.replace("\\", "/")
+            
+            items.append({
+                "id":    f"dicom::{rel_path}",
+                "label": name,
+                "group": "DICOM Dataset",
+                "path":  rel_path,
+                "type":  "dicom",
+            })
+    return items
+
+
+
+def _all_samples():
+    """Tüm örnekleri döner (NIfTI + DICOM)."""
+    return _nifti_samples() + _dicom_samples()
+
+
+# id -> sample bilgisi hızlı erişim
+def _sample_by_id(sid: str) -> dict | None:
+    for s in _all_samples():
+        if s["id"] == sid:
+            return s
+    return None
 
 
 @app.route("/api/samples")
 def list_samples():
-    files = _sample_files()
-    items = [{"id": sid, "label": sid.replace("microUS_", "").replace("_", " ")}
-             for sid in files]
+    """Tüm örnekleri grup bilgisiyle döner."""
+    items = []
+    for s in _all_samples():
+        items.append({
+            "id":    s["id"],
+            "label": s["label"],
+            "group": s["group"],
+            "type":  s["type"],
+        })
     return jsonify({"samples": items})
 
 
 @app.route("/api/load_sample", methods=["POST"])
 def load_sample():
+    """Belirtilen örneği yükler (NIfTI veya DICOM klasör)."""
     global _upload_dir
     data = request.get_json() or {}
-    sid = data.get("id")
-    files = _sample_files()
-    if sid not in files:
+    sid  = data.get("id")
+
+    sample = _sample_by_id(sid)
+    if not sample:
         return jsonify({"error": "Ornek bulunamadi."}), 404
 
     if _upload_dir and os.path.exists(_upload_dir):
         shutil.rmtree(_upload_dir, ignore_errors=True)
-    _upload_dir = tempfile.mkdtemp(prefix="mr_sample_")
-    os.symlink(files[sid], os.path.join(_upload_dir, os.path.basename(files[sid])))
+
+    sample_path = sample["path"]
+    sample_type = sample["type"]
+
+    # Eğer yol relative ise (örneğin DICOM), _HERE (proje kökü) ile birleştir
+    if not os.path.isabs(sample_path):
+        sample_path = os.path.join(_HERE, sample_path)
+
+    if not os.path.exists(sample_path):
+        return jsonify({"error": f"Yol bulunamadi: {sample_path}"}), 404
+
+    if sample_type == "nifti":
+        # NIfTI: sembolik link ile geçici klasore kopyala
+        _upload_dir = tempfile.mkdtemp(prefix="mr_sample_")
+        try:
+            os.symlink(sample_path, os.path.join(_upload_dir, os.path.basename(sample_path)))
+        except (OSError, NotImplementedError):
+            shutil.copy2(sample_path, _upload_dir)
+    else:
+        # DICOM: doğrudan klasörü kullan (kopyalamaya gerek yok)
+        _upload_dir = sample_path
 
     try:
         _loader.load(_upload_dir)
@@ -104,11 +216,17 @@ def load_sample():
     _label_manager.clear()
     annotations_io.load_annotations(_upload_dir, _label_manager)
 
+    shape = _loader.get_dimensions()
     return jsonify({
-        "success": True,
-        "format": _loader.detected_format or "nifti",
-        "shape": list(_loader.get_dimensions()),
-        "num_slices": _loader.get_slice_count(),
+        "success":       True,
+        "format":        _loader.detected_format or sample_type,
+        "shape":         list(shape),
+        "num_slices":    _loader.get_slice_count(),
+        "spacing":       list(_loader.spacing),
+        "series":        _loader.available_series,
+        "selected_role": _loader.selected_series_role,
+        "seg_available": bool(_loader.seg_masks),
+        "seg_labels":    list(_loader.seg_masks.keys()),
     })
 
 
@@ -209,12 +327,125 @@ def volume_info():
 
     shape = _loader.get_dimensions()
     return jsonify({
-        "loaded": True,
-        "format": _loader.detected_format,
-        "shape": list(shape),
-        "num_slices": _loader.get_slice_count(),
-        "spacing": list(_loader.spacing),
+        "loaded":        True,
+        "format":        _loader.detected_format,
+        "shape":         list(shape),
+        "num_slices":    _loader.get_slice_count(),
+        "spacing":       list(_loader.spacing),
+        "series":        _loader.available_series,
+        "selected_role": _loader.selected_series_role,
+        "seg_available": bool(_loader.seg_masks),
+        "seg_labels":    list(_loader.seg_masks.keys()),
     })
+
+
+# ---------------------------------------------------------------------------
+# Seri seçimi API (PROSTATEx multi-seri DICOM için)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/series")
+def list_series():
+    """Tespit edilen DICOM serilerini listeler."""
+    if not _loader.is_loaded:
+        return jsonify({"series": [], "selected_role": ""})
+
+    series = []
+    for role, info in _loader.available_series.items():
+        series.append({
+            "role":        role,
+            "description": info.get("description", ""),
+            "slice_count": info.get("slice_count", 0),
+            "selected":    info.get("selected", False),
+        })
+
+    return jsonify({
+        "series":        series,
+        "selected_role": _loader.selected_series_role,
+    })
+
+
+@app.route("/api/series/select", methods=["POST"])
+def select_series():
+    """Aktif seriyi değiştirir."""
+    if not _loader.is_loaded:
+        return jsonify({"error": "Volume yüklenmemiş."}), 400
+
+    data = request.get_json() or {}
+    role = data.get("role", "").strip().upper()
+
+    if not role:
+        return jsonify({"error": "role alanı zorunlu."}), 400
+
+    try:
+        _loader.load_series(role)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    # LabelManager shape'i güncelle
+    _label_manager.set_volume_shape(_loader.get_dimensions())
+    _label_manager.clear()
+
+    return jsonify({
+        "success":       True,
+        "role":          role,
+        "num_slices":    _loader.get_slice_count(),
+        "shape":         list(_loader.get_dimensions()),
+        "spacing":       list(_loader.spacing),
+    })
+
+
+@app.route("/api/seg_masks")
+def get_seg_masks():
+    """DICOM-SEG'den yüklenen zone mask'lerini döner.
+
+    Her segment için overlay bilgisi ve RLE kodlu mask verilir.
+    Mask shape: (slices, H, W), dtype uint8.
+    """
+    if not _loader.is_loaded:
+        return jsonify({"masks": {}})
+
+    masks = _loader.seg_masks
+    if not masks:
+        return jsonify({"masks": {}})
+
+    vol_shape = _loader.get_dimensions()  # (slices, H, W)
+    result = {}
+    for label, arr in masks.items():
+        # Shape uyumsuzluğu kontrol et; gerekirse crop/pad
+        z_vol = vol_shape[0]
+        z_seg = arr.shape[0]
+        if z_vol != z_seg:
+            # Z ekseni eşitleme: kısa olanı 0-pad
+            if z_seg < z_vol:
+                pad = np.zeros((z_vol - z_seg, arr.shape[1], arr.shape[2]), dtype=np.uint8)
+                arr = np.concatenate([arr, pad], axis=0)
+            else:
+                arr = arr[:z_vol]
+
+        # Her slice için voxel sayısını hesapla
+        voxel_counts = [int(arr[i].sum()) for i in range(arr.shape[0])]
+
+        # Renk bilgisi
+        rgba = config.LABEL_COLORS.get(label, (128, 128, 128, 120))
+
+        # mask'i base64 ile encode et (uint8, flat)
+        mask_bytes = arr.astype(np.uint8).tobytes()
+        mask_b64   = base64.b64encode(mask_bytes).decode("ascii")
+
+        result[label] = {
+            "shape":        list(arr.shape),  # [Z, H, W]
+            "voxel_counts": voxel_counts,
+            "total_voxels": int(arr.sum()),
+            "color": {
+                "r": rgba[0] / 255.0,
+                "g": rgba[1] / 255.0,
+                "b": rgba[2] / 255.0,
+                "a": rgba[3] / 255.0,
+            },
+            "mask_b64":  mask_b64,
+        }
+
+    return jsonify({"masks": result})
 
 
 @app.route("/api/slice/<int:idx>")

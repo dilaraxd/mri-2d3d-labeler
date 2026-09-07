@@ -49,6 +49,12 @@
                 <aside class="control-panel">
                     <button id="open-btn" class="ctrl-btn">Örnekler</button>
 
+                    <!-- Seri seçici: DICOM multi-seri için -->
+                    <div id="series-group" class="ctrl-group" style="display:none">
+                        <div class="ctrl-group-title">Aktif Seri</div>
+                        <select id="series-select" class="series-select" title="Gösterilecek MRI serisi"></select>
+                    </div>
+
                     <div class="ctrl-group">
                         <div class="ctrl-group-title">Etiketler</div>
                         <div id="label-list" class="label-list"></div>
@@ -72,6 +78,12 @@
                         <div class="progress-bar-container">
                             <div id="progress-bar" class="progress-bar" style="width: 0%"></div>
                         </div>
+                    </div>
+
+                    <!-- DICOM-SEG Zone Segmentasyonları paneli -->
+                    <div id="seg-group" class="ctrl-group" style="display:none">
+                        <div class="ctrl-group-title">Zon Segmentasyonları <span class="seg-badge">DICOM-SEG</span></div>
+                        <div id="seg-list" class="seg-list"></div>
                     </div>
                 </aside>
             </div>

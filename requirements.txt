@@ -4,4 +4,6 @@ scipy>=1.12.0
 Pillow>=10.0.0
 nibabel>=5.2.0
 pydicom>=2.4.0
+highdicom>=0.24.0
+pydicom-seg>=0.4.0
 scikit-image>=0.22.0
