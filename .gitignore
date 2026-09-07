@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
-sample_data/dicom/
+sample_data/dicom/*.tcia
+sample_data/dicom/*.exe
+sample_data/dicom/ProstateX-0001/
+sample_data/dicom/ProstateX-0003/
